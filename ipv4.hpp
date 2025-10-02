@@ -9,6 +9,7 @@
 #include <string>
 #include <algorithm>
 #include "logger.hpp"
+#include "tun_device.hpp"
 
 namespace tcp
 {
@@ -33,13 +34,14 @@ namespace ipv4
         uint32_t dest_ip;
     };
 
-    struct __attribute__((packed)) packet_t
+    struct __attribute__((packed)) packet_t // not even needed really, i wil just work with packet_buffer
     {
         header_t header;
         uint8_t options_and_payload[]; // this will have both options and payload
     };
 
     //
+
     enum class PARSING_ERROR_TYPE
     {
         CHECKSUM_FAIL,
@@ -77,8 +79,9 @@ namespace ipv4
 
     class packet_buffer // ℹ️ this will be referred to as "pf"
     {
+        uint16_t len_{0};
+
         std::unique_ptr<uint8_t[]> data_;
-        size_t len_{0};
 
         // precomputed pointers and sizes
         header_t *ip_hdr_{nullptr};
@@ -91,7 +94,9 @@ namespace ipv4
         void compute_offsets_and_lengths();
 
     public:
-        packet_buffer(const uint8_t *src, size_t len);
+        packet_buffer(const uint8_t *src, size_t len); // this if u give full paceket as input
+
+        packet_buffer(const uint32_t src_ip, const uint32_t des_ip, uint8_t *segment, size_t segment_size); // for making from a recieved segment
 
         uint8_t *data() noexcept { return data_.get(); }
         size_t size() const noexcept { return len_; }
@@ -103,5 +108,21 @@ namespace ipv4
         size_t ip_header_size() const { return ip_hdr_size_; } // includes options
         size_t ip_payload_size() const { return ip_payload_size_; }
     };
+
+    //
+    inline const tun_device &tunnel_device_instance()
+    {
+        static tun_device tun_device_instance{};
+        return tun_device_instance;
+    }
+
+    uint16_t get_checksum(const std::unique_ptr<ipv4::packet_buffer> &packet);
+    void verify_checksum(const std::unique_ptr<ipv4::packet_buffer> &packet);
+    void add_checksum(const std::unique_ptr<ipv4::packet_buffer> &packet);
+
+    std::pair<uint8_t *, int> get_packet();
+    void process_packets(); // can overload if want to use some other input mediumh
+    void send_segment_tcp(std::unique_ptr<ipv4::packet_buffer> payload);
+    void process_segment(uint8_t *segment, size_t segment_size, uint32_t src_ip, uint32_t dest_ip);
 
 } // namespace ipv4

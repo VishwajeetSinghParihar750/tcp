@@ -2,7 +2,6 @@
 #include <vector>
 #include <memory>
 #include <memory.h>
-#include "ip.hpp"
 
 namespace tcp
 {
@@ -19,6 +18,21 @@ namespace tcp
     {
         header_t header;
         uint8_t options_padding_payload[];
+    };
+
+    enum class STATE
+    {
+        CLOSED,
+        LISTEN,
+        SYN_SENT,
+        SYN_RECEIVED,
+        ESTABLISHED,
+        FIN_WAIT_1,
+        FIN_WAIT_2,
+        CLOSE_WAIT,
+        LAST_ACK,
+        CLOSING,
+        TIME_WAIT
     };
 
     //
@@ -76,18 +90,12 @@ namespace tcp
         uint8_t *tcp_payload{nullptr};
         size_t tcp_payload_size{0};
 
+        uint32_t src_ip, dst_ip;
+
         void compute_offsets_and_lengths();
 
     public:
-        segment_buffer(uint8_t *dataptr, size_t sz) : data(new uint8_t[sz]), len(sz)
-        {
-            if (len < MIN_HEADER_LEN)
-                throw parsing_error(PARSING_ERROR_TYPE::SEGMENT_TOO_SMALL);
-
-            memcpy(data.get(), dataptr, sz);
-
-            compute_offsets_and_lengths();
-        }
+        segment_buffer(uint32_t src_ip_addr, uint32_t dst_ip_addr, uint8_t *dataptr, size_t sz);
 
         header_t *header() const { return tcp_hdr; }
         size_t header_size() const { return tcp_hdr_size; }
@@ -98,24 +106,6 @@ namespace tcp
         size_t size() const { return len; }
     };
 
-    class ip_facing_input_buffer
-    {
-        std::vector<std::unique_ptr<segment_buffer>> segs;
+    void process_segment(uint32_t src_ip, uint32_t dest_ip, uint8_t *segment, size_t size);
 
-    public:
-        void write(uint8_t *segment, size_t size)
-        {
-            try
-            {
-                segs.push_back(std::make_unique<segment_buffer>(segment, size));
-
-                logger::getInstance().logInfo("SEGMENT ACCEPTED SUCCESSFULLY ");
-            }
-            catch (parsing_error e)
-            {
-                logger::getInstance().logError(parsing_error_to_string(e.error));
-            }
-        }
-    };
-
-} // namespace tcp
+}
