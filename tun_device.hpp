@@ -95,7 +95,7 @@ private:
         {
             int ret = system(cmd.c_str());
             if (ret != 0)
-                logger::getInstance().logError("Command failed: " + cmd);
+                logger::getInstance().logError("Command failed: ", cmd);
         };
 
         run_cmd("sudo ip route del " + route_cidr_ + " dev " + tun_name_);

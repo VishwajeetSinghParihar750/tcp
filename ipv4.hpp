@@ -40,7 +40,6 @@ namespace ipv4
     };
 
     //
-
     enum class PARSING_ERROR_TYPE
     {
         CHECKSUM_FAIL,
@@ -55,15 +54,17 @@ namespace ipv4
         switch (e)
         {
         case PARSING_ERROR_TYPE::PACKET_TOO_SMALL:
-            return "PACKET_TOO_SMALL";
+            return "IPV4_PACKET_TOO_SMALL";
         case PARSING_ERROR_TYPE::CHECKSUM_FAIL:
-            return "CHECKSUM FAIL";
+            return "IPV4_CHECKSUM FAIL";
+        case PARSING_ERROR_TYPE::NOT_IPV4:
+            return "IPV4_NOT IPV4";
         case PARSING_ERROR_TYPE::PARSER_ERROR:
-            return "PARSER_ERROR";
+            return "IPV4_PARSER_ERROR";
         case PARSING_ERROR_TYPE::SANITY_CHECK_FAIL:
-            return "SANITY_CHECK_FAIL";
+            return "IPV4_SANITY_CHECK_FAIL";
         default:
-            return "UNKNOWN_ERROR";
+            return "IPV4_UNKNOWN_ERROR";
         }
     }
 
@@ -86,15 +87,10 @@ namespace ipv4
         uint8_t *ip_payload_{nullptr};
         size_t ip_payload_size_{0};
 
-        tcp::header_t *tcp_hdr_{nullptr};
-        size_t tcp_hdr_size_{0};
-        uint8_t *tcp_payload_{nullptr};
-        size_t tcp_payload_size_{0};
-
+        explicit packet_buffer(size_t capacity);
         void compute_offsets_and_lengths();
 
     public:
-        explicit packet_buffer(size_t capacity);
         packet_buffer(const uint8_t *src, size_t len);
 
         uint8_t *data() noexcept { return data_.get(); }
@@ -103,13 +99,9 @@ namespace ipv4
         header_t *ip_header() { return ip_hdr_; }     // header struct doesn't include options
         uint8_t *ip_options() { return ip_options_; } // pointer to IP options (if any)
         uint8_t *ip_payload() { return ip_payload_; } // payload includes TCP header + TCP payload
-        tcp::header_t *tcp_header() { return tcp_hdr_; }
-        uint8_t *tcp_payload() { return tcp_payload_; }
 
         size_t ip_header_size() const { return ip_hdr_size_; } // includes options
         size_t ip_payload_size() const { return ip_payload_size_; }
-        size_t tcp_header_size() const { return tcp_hdr_size_; }
-        size_t tcp_payload_size() const { return tcp_payload_size_; }
     };
 
 } // namespace ipv4

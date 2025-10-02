@@ -22,19 +22,29 @@ public:
         static logger instance;
         return instance;
     }
+    template <typename... Args>
+    void logInfo(Args &&...args) // msgs would be interleaved without lockign
+    {
+        if (on)
+        {
+            size_t n = 0;
+            ((std::cout << args << (n++ + 1 == sizeof...(Args) ? '\n' : ' ')), ...);
+        }
+    }
+    template <typename... Args>
+    void logError(Args &&...args) // msgs would be interleaved without lockign
+    {
+        if (on)
+        {
+            size_t n = 0;
+            ((std::cerr << args << (n++ + 1 == sizeof...(Args) ? '\n' : ' ')), ...);
+        }
+    }
 
-    void logInfo(const std::string &msg) // msgs would be interleaved without lockign
+    template <typename... Args>
+    void logTest(Args &&...args) // msgs would be interleaved without lockign
     {
-        if (on)
-            std::cout << msg << '\n';
-    }
-    void logError(const std::string &msg)
-    {
-        if (on)
-            std::cerr << msg << '\n';
-    }
-    void logTest(const std::string &msg)
-    {
-        std::cout << msg << '\n';
+        size_t n = 0;
+        ((std::cerr << args << (n++ + 1 == sizeof...(Args) ? '\n' : ' ')), ...);
     }
 };

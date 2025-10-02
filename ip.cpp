@@ -6,9 +6,9 @@
 
 ip::ip(std::shared_ptr<tcp::ip_facing_input_buffer> tcp_input_buffer) : tcp_input_buffer(tcp_input_buffer) {}
 
-void ip::forward_pf_to_tcp(std::unique_ptr<ipv4::packet_buffer> payload)
+void ip::forward_segment_to_tcp(std::unique_ptr<ipv4::packet_buffer> payload)
 {
-    tcp_input_buffer->write(std::move(payload));
+    tcp_input_buffer->write(payload->ip_payload(), payload->ip_payload_size());
 }
 
 void ip::perform_header_checksum(const std::unique_ptr<ipv4::packet_buffer> &packet)
@@ -16,25 +16,45 @@ void ip::perform_header_checksum(const std::unique_ptr<ipv4::packet_buffer> &pac
     ipv4::header_t *header = packet->ip_header();
     uint8_t *options = packet->ip_options();
 
-    uint16_t checksum = 0;
+    uint32_t checksum = 0;
+    auto wrap = [&]
+    {
+        if (checksum & (1 << 16))
+        {
+            checksum++;
+            checksum ^= (1 << 16);
+        }
+    };
 
     checksum += (header->ver_and_hlen << 8) + header->service_type;
     checksum += htons(header->total_len);
+    wrap();
     checksum += htons(header->identification);
+    wrap();
     checksum += htons(header->flags_and_fragmentation_offset);
+    wrap();
     checksum += (header->time_to_live << 8) + header->protocol;
+    wrap();
     checksum += htons(header->header_checksum);
-    checksum += (htonl(header->source_ip) >> 16) & 0xFF;
-    checksum += htonl(header->source_ip) & 0xFF;
-    checksum += (htonl(header->dest_ip) >> 16) & 0xFF;
-    checksum += htonl(header->dest_ip) & 0xFF;
+    wrap();
+    checksum += (htonl(header->source_ip) >> 16) & 0xFFFF;
+    wrap();
+    checksum += htonl(header->source_ip) & 0xFFFF;
+    wrap();
+    checksum += (htonl(header->dest_ip) >> 16) & 0xFFFF;
+    wrap();
+    checksum += htonl(header->dest_ip) & 0xFFFF;
+    wrap();
 
-        size_t opt_sz = packet->ip_header_size() - 20;
+    size_t opt_sz = packet->ip_header_size() - 20;
 
     for (int i = 0; i < opt_sz / 2; i++)
+    {
         checksum += (options[2 * i] << 8) + options[2 * i + 1];
+        wrap();
+    }
 
-    if (checksum != 0)
+    if (checksum != 0xFFFF)
         throw ipv4::parsing_error(ipv4::PARSING_ERROR_TYPE::CHECKSUM_FAIL);
 }
 
@@ -52,11 +72,15 @@ void ip::parse_incoming_ipv4_packets(int fd) // can overload if want to use some
 
             // 🔮🔮  would add reassembly here in future
 
-            forward_pf_to_tcp(std::move(pf)); //
+            logger::getInstance().logInfo("ip packet size ", pf->size()); ////////////////////////////////////
+
+            forward_segment_to_tcp(std::move(pf)); //
+
+            logger::getInstance().logInfo("PACKET FORWARDED TO TCP ");
         }
         catch (ipv4::parsing_error e) // any other exception should cause shutdown
         {
-            logger::getInstance().logError(e.what() + ipv4::parsing_error_to_string(e.error));
+            logger::getInstance().logError(e.what(), ipv4::parsing_error_to_string(e.error));
         }
     }
     if (nread == -1)
