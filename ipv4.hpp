@@ -11,12 +11,6 @@
 #include "logger.hpp"
 #include "tun_device.hpp"
 
-namespace tcp
-{
-    class ip_facing_input_buffer;
-    class header_t;
-}
-
 namespace ipv4
 {
 
@@ -48,7 +42,8 @@ namespace ipv4
         PACKET_TOO_SMALL,
         PARSER_ERROR,
         SANITY_CHECK_FAIL,
-        NOT_IPV4
+        NOT_IPV4,
+        NOT_TCP
     };
 
     inline std::string parsing_error_to_string(PARSING_ERROR_TYPE e)
@@ -88,10 +83,10 @@ namespace ipv4
         uint8_t *ip_options_{nullptr};
         size_t ip_hdr_size_{0};
         uint8_t *ip_payload_{nullptr};
-        size_t ip_payload_size_{0};
+        uint16_t ip_payload_size_{0};
 
         explicit packet_buffer(size_t capacity);
-        void compute_offsets_and_lengths();
+        void parse_network_packet();
 
     public:
         packet_buffer(const uint8_t *src, size_t len); // this if u give full paceket as input
@@ -106,7 +101,7 @@ namespace ipv4
         uint8_t *ip_payload() { return ip_payload_; } // payload includes TCP header + TCP payload
 
         size_t ip_header_size() const { return ip_hdr_size_; } // includes options
-        size_t ip_payload_size() const { return ip_payload_size_; }
+        uint16_t ip_payload_size() const { return ip_payload_size_; }
     };
 
     //
@@ -118,8 +113,10 @@ namespace ipv4
 
     uint16_t get_checksum(const std::unique_ptr<ipv4::packet_buffer> &packet);
     void verify_checksum(const std::unique_ptr<ipv4::packet_buffer> &packet);
-    void add_checksum(const std::unique_ptr<ipv4::packet_buffer> &packet);
+    void hton_and_add_checksum(const std::unique_ptr<packet_buffer> &packet);
 
+    void network_to_host_header(header_t *hdr);
+    void host_to_network_header(header_t *hdr, bool zero_checksum);
     std::pair<uint8_t *, int> get_packet();
     void process_packets(); // can overload if want to use some other input mediumh
     void send_segment_tcp(std::unique_ptr<ipv4::packet_buffer> payload);

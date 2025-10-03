@@ -15,7 +15,7 @@ namespace ipv4
             throw parsing_error(PARSING_ERROR_TYPE::PACKET_TOO_SMALL);
 
         memcpy(data_.get(), src, len);
-        compute_offsets_and_lengths();
+        parse_network_packet();
     }
 
     packet_buffer::packet_buffer(const uint32_t src_ip, const uint32_t des_ip, uint8_t *segment, size_t segment_size) : packet_buffer(segment_size + 20)
@@ -27,7 +27,7 @@ namespace ipv4
         //
         ip_hdr_->ver_and_hlen = 0x45;
         ip_hdr_->service_type = 0x00;
-        ip_hdr_->total_len = htons(segment_size + 20);
+        ip_hdr_->total_len = (segment_size + 20);
 
         //
         ip_hdr_->identification = 0x0000;
@@ -38,15 +38,17 @@ namespace ipv4
         ip_hdr_->header_checksum = 0x0000; // laterrr
         //
 
-        ip_hdr_->source_ip = htonl(src_ip);
-        ip_hdr_->dest_ip = htonl(des_ip);
+        ip_hdr_->source_ip = src_ip;
+        ip_hdr_->dest_ip = des_ip;
 
-        compute_offsets_and_lengths();
+        parse_network_packet();
     }
 
-    void packet_buffer::compute_offsets_and_lengths()
+    void packet_buffer::parse_network_packet()
     {
         ip_hdr_ = reinterpret_cast<header_t *>(data_.get());
+
+        network_to_host_header(ip_hdr_);
 
         ip_hdr_size_ = (ip_hdr_->ver_and_hlen & 0x0F) * 4;
 
@@ -67,8 +69,7 @@ namespace ipv4
         if (version != 4)
             throw parsing_error(PARSING_ERROR_TYPE::NOT_IPV4, "Not IPv4");
 
-        uint16_t total_len = ntohs(ip_hdr_->total_len);
-
+        uint16_t total_len = ip_hdr_->total_len;
         {
             if (total_len < ip_hdr_size_)
                 throw parsing_error(PARSING_ERROR_TYPE::SANITY_CHECK_FAIL, "Total length smaller than header");
@@ -84,65 +85,81 @@ namespace ipv4
     {
         tcp::process_segment(payload->ip_header()->dest_ip, payload->ip_header()->source_ip, payload->ip_payload(), payload->ip_payload_size());
     }
+}
+
+namespace ipv4
+{
 
     uint16_t get_checksum(const std::unique_ptr<packet_buffer> &packet)
     {
-        ipv4::header_t *header = packet->ip_header();
-        uint8_t *options = packet->ip_options();
+        uint32_t sum = 0;
 
-        uint32_t checksum = 0;
-        auto wrap = [&]
+        auto *hdr = packet->ip_header();
+        size_t header_len = packet->ip_header_size();
+        uint8_t *data = reinterpret_cast<uint8_t *>(hdr);
+
+        for (size_t i = 0; i < header_len; i += 2)
         {
-            if (checksum & (1 << 16))
+            uint16_t word = (data[i] << 8) | data[i + 1];
+            sum += word;
+
+            if (sum & 0x10000)
             {
-                checksum++;
-                checksum ^= (1 << 16);
+                sum = (sum & 0xFFFF) + 1;
             }
-        };
-
-        checksum += (header->ver_and_hlen << 8) + header->service_type;
-        checksum += htons(header->total_len);
-        wrap();
-        checksum += htons(header->identification);
-        wrap();
-        checksum += htons(header->flags_and_fragmentation_offset);
-        wrap();
-        checksum += (header->time_to_live << 8) + header->protocol;
-        wrap();
-        checksum += htons(header->header_checksum);
-        wrap();
-        checksum += (htonl(header->source_ip) >> 16) & 0xFFFF;
-        wrap();
-        checksum += htonl(header->source_ip) & 0xFFFF;
-        wrap();
-        checksum += (htonl(header->dest_ip) >> 16) & 0xFFFF;
-        wrap();
-        checksum += htonl(header->dest_ip) & 0xFFFF;
-        wrap();
-
-        uint16_t opt_sz = packet->ip_header_size() - 20;
-
-        for (auto i = 0; i < opt_sz / 2; i++)
-        {
-            checksum += (options[2 * i] << 8) + options[2 * i + 1];
-            wrap();
         }
+        return static_cast<uint16_t>(sum & 0xFFFF);
+    }
 
-        return checksum;
+    void host_to_network_header(header_t *hdr, bool zero_checksum = false)
+    {
+        hdr->total_len = htons(hdr->total_len);
+        hdr->identification = htons(hdr->identification);
+        hdr->flags_and_fragmentation_offset = htons(hdr->flags_and_fragmentation_offset);
+        hdr->source_ip = htonl(hdr->source_ip);
+        hdr->dest_ip = htonl(hdr->dest_ip);
+
+        if (zero_checksum)
+            hdr->header_checksum = 0;
+        else
+            hdr->header_checksum = htons(hdr->header_checksum);
+    }
+
+    void network_to_host_header(header_t *hdr)
+    {
+        hdr->total_len = ntohs(hdr->total_len);
+        hdr->identification = ntohs(hdr->identification);
+        hdr->flags_and_fragmentation_offset = ntohs(hdr->flags_and_fragmentation_offset);
+        hdr->source_ip = ntohl(hdr->source_ip);
+        hdr->dest_ip = ntohl(hdr->dest_ip);
+        hdr->header_checksum = ntohs(hdr->header_checksum);
     }
 
     void verify_checksum(const std::unique_ptr<packet_buffer> &packet)
     {
+        auto *hdr = packet->ip_header();
+
+        host_to_network_header(hdr); // convert to network order for checksum
+
         if (get_checksum(packet) != 0xFFFF)
-            throw ipv4::parsing_error(ipv4::PARSING_ERROR_TYPE::CHECKSUM_FAIL);
+            throw parsing_error(PARSING_ERROR_TYPE::CHECKSUM_FAIL);
+
+        network_to_host_header(hdr); // restore host order
     }
 
-    void add_checksum(const std::unique_ptr<packet_buffer> &packet)
+    void hton_and_add_checksum(const std::unique_ptr<packet_buffer> &packet)
     {
-        packet->ip_header()->header_checksum = 0x0000;
+        auto *hdr = packet->ip_header();
+
+        host_to_network_header(hdr, true); // convert to network order and zero checksum
         uint16_t checksum = get_checksum(packet);
-        packet->ip_header()->header_checksum = 0xFFFF ^ checksum;
+        hdr->header_checksum = htons(0xFFFF ^ checksum);
     }
+
+}
+
+namespace ipv4
+{
 
     std::pair<uint8_t *, int> get_packet()
     {
@@ -165,11 +182,15 @@ namespace ipv4
             {
                 try
                 {
+
                     auto pf = std::make_unique<ipv4::packet_buffer>(buffer, nread);
 
                     verify_checksum(pf);
 
                     // 🔮🔮  would add reassembly here in future
+
+                    if (pf->ip_header()->protocol != 6)
+                        throw parsing_error(PARSING_ERROR_TYPE::NOT_TCP);
 
                     send_segment_tcp(std::move(pf));
                 }
@@ -190,6 +211,11 @@ namespace ipv4
             throw std::runtime_error("INCOMPLETE PACKET WRITE ");
     }
 
+}
+
+namespace ipv4
+{
+
     void process_segment(uint8_t *segment, size_t segment_size, uint32_t src_ip, uint32_t dest_ip)
     {
 
@@ -199,7 +225,7 @@ namespace ipv4
 
             // 🔮🔮 would add fragmenation here in future
 
-            add_checksum(pf);
+            hton_and_add_checksum(pf);
 
             send_packet(pf->data(), pf->size());
         }

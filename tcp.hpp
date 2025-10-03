@@ -90,9 +90,9 @@ namespace tcp
         uint8_t *tcp_payload{nullptr};
         size_t tcp_payload_size{0};
 
-        uint32_t src_ip, dst_ip;
+        uint32_t src_ip, dest_ip;
 
-        void compute_offsets_and_lengths();
+        void parse_network_segment();
 
     public:
         segment_buffer(uint32_t src_ip_addr, uint32_t dst_ip_addr, uint8_t *dataptr, size_t sz);
@@ -104,8 +104,20 @@ namespace tcp
         size_t payload_size() const { return tcp_payload_size; }
         uint8_t *get_data() const { return data.get(); }
         size_t size() const { return len; }
+
+        uint32_t source_ip() const { return src_ip; }
+        uint32_t destination_ip() const { return dest_ip; }
     };
 
-    void process_segment(uint32_t src_ip, uint32_t dest_ip, uint8_t *segment, size_t size);
+    void process_segment(uint32_t src_ip, uint32_t dest_ip, uint8_t *segment, uint16_t size);
 
-}
+    //
+
+    void host_to_network_header(header_t *hdr, bool zero_checksum);
+
+    void network_to_host_header(header_t *hdr);
+    uint16_t get_checksum(const segment_buffer &seg);
+    void verify_checksum(segment_buffer &seg);
+    void hton_and_add_checksum(segment_buffer &seg);
+
+} // namespace tcp
